@@ -1,98 +1,172 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Location from "expo-location";
+import React, { useEffect, useState } from "react";
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
+} from "react-native";
+import { Button, Card, Paragraph, Title } from "react-native-paper";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
-
-export default function HomeScreen() {
+function StampCard({ log }: { log: any }) {
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <Card style={{ marginTop: 20 }}>
+      <Card.Content>
+        <Title>Senaste stämpel: {log.type}</Title>
+        <Paragraph>Namn: {log.name}</Paragraph>
+        <Paragraph>Personnummer: {log.personnummer}</Paragraph>
+        <Paragraph>Datum: {log.date}</Paragraph>
+        <Paragraph>Tid: {log.time}</Paragraph>
+        <Paragraph>
+          Plats: {log.location.street}, {log.location.city}, {log.location.region}
+        </Paragraph>
+      </Card.Content>
+    </Card>
+  );
+}
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+export default function IndexScreen() {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [personnummer, setPersonnummer] = useState("");
+  const [log, setLog] = useState<any>(null);
+
+  useEffect(() => {
+    const loadUserData = async () => {
+      const savedFirst = await AsyncStorage.getItem("firstName");
+      const savedLast = await AsyncStorage.getItem("lastName");
+      const savedPn = await AsyncStorage.getItem("personnummer");
+
+      if (savedFirst) setFirstName(savedFirst);
+      if (savedLast) setLastName(savedLast);
+      if (savedPn) setPersonnummer(savedPn);
+    };
+    loadUserData();
+  }, []);
+
+  const saveUserData = async () => {
+    await AsyncStorage.setItem("firstName", firstName);
+    await AsyncStorage.setItem("lastName", lastName);
+    await AsyncStorage.setItem("personnummer", personnummer);
+  };
+
+  const handleStamp = async (type: "IN" | "OUT") => {
+    if (!firstName || !lastName || !personnummer) {
+      alert("Du måste fylla i alla fält.");
+      return;
+    }
+    
+
+    await saveUserData();
+
+    let { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      alert("Platsåtkomst nekad");
+      return;
+    }
+
+    const location = await Location.getCurrentPositionAsync({});
+    const geocode = await Location.reverseGeocodeAsync({
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    });
+    const address = geocode[0] || {};
+
+    const time = new Date();
+
+    const entry = {
+      name: `${firstName} ${lastName}`,
+      personnummer,
+      type,
+      date: time.toLocaleDateString(),
+      time: time.toLocaleTimeString(),
+      location: {
+        street: address.street || "",
+        city: address.city || "",
+        region: address.region || "",
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      },
+    };
+
+    setLog(entry);
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView contentContainerStyle={styles.container}>
+          <Text style={styles.title}>EP-Liggare</Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="Förnamn"
+            value={firstName}
+            onChangeText={setFirstName}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Efternamn"
+            value={lastName}
+            onChangeText={setLastName}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Personnummer"
+            keyboardType="number-pad"
+            value={personnummer}
+            maxLength={12}
+            onChangeText={setPersonnummer}
+            returnKeyType="done"
+            blurOnSubmit={true}
+          />
+
+          <View style={styles.buttonContainer}>
+            <Button
+              mode="contained"
+              onPress={() => handleStamp("IN")}
+              style={{ flex: 1, marginRight: 10 }}
+            >
+              Stämpla IN
+            </Button>
+            <Button
+              mode="contained"
+              onPress={() => handleStamp("OUT")}
+              style={{ flex: 1, marginLeft: 10 }}
+            >
+              Stämpla UT
+            </Button>
+          </View>
+
+          {log && <StampCard log={log} />}
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: { flexGrow: 1, padding: 20, justifyContent: "center" },
+  title: { fontSize: 28, fontWeight: "bold", textAlign: "center", marginBottom: 30 },
+  input: {
+    borderWidth: 1,
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  buttonContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginTop: 20,
+    marginBottom: 30,
   },
 });
