@@ -1,172 +1,172 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Location from "expo-location";
-import React, { useEffect, useState } from "react";
-import {
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableWithoutFeedback,
-  View,
-} from "react-native";
-import { Button, Card, Paragraph, Title } from "react-native-paper";
-
-function StampCard({ log }: { log: any }) {
-  return (
-    <Card style={{ marginTop: 20 }}>
-      <Card.Content>
-        <Title>Senaste stämpel: {log.type}</Title>
-        <Paragraph>Namn: {log.name}</Paragraph>
-        <Paragraph>Personnummer: {log.personnummer}</Paragraph>
-        <Paragraph>Datum: {log.date}</Paragraph>
-        <Paragraph>Tid: {log.time}</Paragraph>
-        <Paragraph>
-          Plats: {log.location.street}, {log.location.city}, {log.location.region}
-        </Paragraph>
-      </Card.Content>
-    </Card>
-  );
-}
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
+import React, { useEffect, useState } from 'react';
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
+import { Button, Card, Paragraph, Title } from 'react-native-paper';
+import { supabase } from '../../lib/supabase';
 
 export default function IndexScreen() {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [personnummer, setPersonnummer] = useState("");
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [personnummer, setPersonnummer] = useState('');
   const [log, setLog] = useState<any>(null);
+  const [stamping, setStamping] = useState(false);
 
+  // Ladda användardata lokalt
   useEffect(() => {
-    const loadUserData = async () => {
-      const savedFirst = await AsyncStorage.getItem("firstName");
-      const savedLast = await AsyncStorage.getItem("lastName");
-      const savedPn = await AsyncStorage.getItem("personnummer");
-
-      if (savedFirst) setFirstName(savedFirst);
-      if (savedLast) setLastName(savedLast);
-      if (savedPn) setPersonnummer(savedPn);
+    const loadData = async () => {
+      const f = await AsyncStorage.getItem('firstName');
+      const l = await AsyncStorage.getItem('lastName');
+      const p = await AsyncStorage.getItem('personnummer');
+      if(f) setFirstName(f);
+      if(l) setLastName(l);
+      if(p) setPersonnummer(p);
     };
-    loadUserData();
+    loadData();
   }, []);
 
-  const saveUserData = async () => {
-    await AsyncStorage.setItem("firstName", firstName);
-    await AsyncStorage.setItem("lastName", lastName);
-    await AsyncStorage.setItem("personnummer", personnummer);
-  };
-
-  const handleStamp = async (type: "IN" | "OUT") => {
-    if (!firstName || !lastName || !personnummer) {
-      alert("Du måste fylla i alla fält.");
+  const handleStamp = async () => {
+    if(!firstName || !lastName || !personnummer){
+      alert("Fyll i alla fält!");
       return;
     }
-    
 
-    await saveUserData();
+    setStamping(true);
+
+    await AsyncStorage.setItem('firstName', firstName);
+    await AsyncStorage.setItem('lastName', lastName);
+    await AsyncStorage.setItem('personnummer', personnummer);
 
     let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
+    if(status !== 'granted'){
       alert("Platsåtkomst nekad");
+      setStamping(false);
       return;
     }
 
     const location = await Location.getCurrentPositionAsync({});
-    const geocode = await Location.reverseGeocodeAsync({
+    const geo = await Location.reverseGeocodeAsync(location.coords);
+    const place = geo[0] || {};
+
+    // Kontrollera om användaren finns i Supabase
+    let { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('personal_number', personnummer)
+      .single();
+
+    if(!userData){
+      const { data, error } = await supabase
+        .from('users')
+        .insert([{ personal_number: personnummer, name: `${firstName} ${lastName}`, role: 'employee' }])
+        .select()
+        .single();
+      if(error) console.error(error);
+      userData = data;
+    }
+
+    const type = log?.type === 'IN' ? 'OUT' : 'IN';
+    const stampEntry = {
+      user_id: userData.id,
+      type,
       latitude: location.coords.latitude,
       longitude: location.coords.longitude,
-    });
-    const address = geocode[0] || {};
-
-    const time = new Date();
-
-    const entry = {
-      name: `${firstName} ${lastName}`,
-      personnummer,
-      type,
-      date: time.toLocaleDateString(),
-      time: time.toLocaleTimeString(),
-      location: {
-        street: address.street || "",
-        city: address.city || "",
-        region: address.region || "",
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      },
+      city: place.city || '',
+      address: `${place.street || ''} ${place.streetNumber || ''}`.trim(),
+      date: new Date().toLocaleDateString(),
+      time: new Date().toLocaleTimeString()
     };
 
-    setLog(entry);
+    const { data, error } = await supabase.from('stamps').insert([stampEntry]);
+    if(error) console.error(error);
+
+    setLog({ ...stampEntry, name: userData.name, type });
+    setStamping(false);
   };
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={styles.container}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView contentContainerStyle={styles.container}>
-          <Text style={styles.title}>EP-Liggare</Text>
+      <Text style={styles.title}>EP-Liggare</Text>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Förnamn"
-            value={firstName}
-            onChangeText={setFirstName}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Efternamn"
-            value={lastName}
-            onChangeText={setLastName}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Personnummer"
-            keyboardType="number-pad"
-            value={personnummer}
-            maxLength={12}
-            onChangeText={setPersonnummer}
-            returnKeyType="done"
-            blurOnSubmit={true}
-          />
+      <TextInput
+        style={styles.input}
+        placeholder="Förnamn"
+        value={firstName}
+        onChangeText={setFirstName}
+      />
 
-          <View style={styles.buttonContainer}>
-            <Button
-              mode="contained"
-              onPress={() => handleStamp("IN")}
-              style={{ flex: 1, marginRight: 10 }}
+      <TextInput
+        style={styles.input}
+        placeholder="Efternamn"
+        value={lastName}
+        onChangeText={setLastName}
+      />
+
+      <TextInput
+        style={styles.input}
+        placeholder="Personnummer"
+        keyboardType="number-pad"
+        value={personnummer}
+        maxLength={12}
+        onChangeText={setPersonnummer}
+        returnKeyType="done"
+        blurOnSubmit={true}
+      />
+
+      <Button
+        mode="contained"
+        onPress={handleStamp}
+        style={{
+          borderRadius: 60,
+          width: 120,
+          height: 120,
+          justifyContent: 'center',
+          alignItems: 'center',
+          alignSelf: 'center',
+          marginTop: 20
+        }}
+        contentStyle={{ width: 120, height: 120 }}
+        color={log?.type === 'IN' ? 'red' : 'green'} // Grön = Stämpla IN, Röd = Stämpla UT
+        loading={stamping}
+      >
+        {log?.type === 'IN' ? 'Stämpla UT' : 'Stämpla IN'}
+      </Button>
+
+      {log && (
+        <Card style={{ marginTop: 20 }}>
+          <Card.Content>
+            <Title>{log.name} — {log.type}</Title>
+            <Paragraph>Datum: {log.date}</Paragraph>
+            <Paragraph>Tid: {log.time}</Paragraph>
+            <Paragraph>Adress: {log.address}, {log.city}</Paragraph>
+          </Card.Content>
+          {log.latitude && (
+            <MapView
+              style={{ height: 180, marginTop: 10 }}
+              initialRegion={{
+                latitude: log.latitude,
+                longitude: log.longitude,
+                latitudeDelta: 0.01,
+                longitudeDelta: 0.01
+              }}
+              scrollEnabled={false}
+              zoomEnabled={false}
             >
-              Stämpla IN
-            </Button>
-            <Button
-              mode="contained"
-              onPress={() => handleStamp("OUT")}
-              style={{ flex: 1, marginLeft: 10 }}
-            >
-              Stämpla UT
-            </Button>
-          </View>
-
-          {log && <StampCard log={log} />}
-        </ScrollView>
-      </TouchableWithoutFeedback>
+              <Marker coordinate={{ latitude: log.latitude, longitude: log.longitude }} />
+            </MapView>
+          )}
+        </Card>
+      )}
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, padding: 20, justifyContent: "center" },
-  title: { fontSize: 28, fontWeight: "bold", textAlign: "center", marginBottom: 30 },
-  input: {
-    borderWidth: 1,
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  buttonContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginTop: 20,
-    marginBottom: 30,
-  },
+  container: { flex:1, padding: 20, justifyContent:'center' },
+  title:{ fontSize:28, fontWeight:'bold', textAlign:'center', marginBottom:20 },
+  input:{ borderWidth:1, borderRadius:8, padding:10, marginBottom:10 }
 });
