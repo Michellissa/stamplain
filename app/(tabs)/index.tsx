@@ -12,8 +12,8 @@ export default function IndexScreen() {
   const [personnummer, setPersonnummer] = useState('');
   const [log, setLog] = useState<any>(null);
   const [stamping, setStamping] = useState(false);
+  const [infoVisible, setInfoVisible] = useState(false); 
 
-  // Ladda användardata lokalt
   useEffect(() => {
     const loadData = async () => {
       const f = await AsyncStorage.getItem('firstName');
@@ -49,7 +49,6 @@ export default function IndexScreen() {
     const geo = await Location.reverseGeocodeAsync(location.coords);
     const place = geo[0] || {};
 
-    // Kontrollera om användaren finns i Supabase
     let { data: userData, error: userError } = await supabase
       .from('users')
       .select('*')
@@ -83,6 +82,7 @@ export default function IndexScreen() {
 
     setLog({ ...stampEntry, name: userData.name, type });
     setStamping(false);
+    setInfoVisible(true); 
   };
 
   return (
@@ -130,11 +130,24 @@ export default function IndexScreen() {
           marginTop: 20
         }}
         contentStyle={{ width: 120, height: 120 }}
-        color={log?.type === 'IN' ? 'red' : 'green'} // Grön = Stämpla IN, Röd = Stämpla UT
         loading={stamping}
       >
         {log?.type === 'IN' ? 'Stämpla UT' : 'Stämpla IN'}
       </Button>
+
+     
+      {infoVisible && log && (
+        <Card style={{ marginTop: 20, backgroundColor: '#eef', padding: 10 }}>
+          <Card.Content>
+            <Title>✔ Stämpling registrerad</Title>
+            <Paragraph>Du har stämplat: {log.type}</Paragraph>
+            <Paragraph>Tid: {log.time}</Paragraph>
+            <Paragraph>Datum: {log.date}</Paragraph>
+            <Paragraph>Plats: {log.address}</Paragraph>
+            <Button onPress={() => setInfoVisible(false)}>Stäng</Button>
+          </Card.Content>
+        </Card>
+      )}
 
       {log && (
         <Card style={{ marginTop: 20 }}>

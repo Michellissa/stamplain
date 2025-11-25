@@ -1,84 +1,99 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Card, Title, Paragraph, Button } from 'react-native-paper';
-import MapView, { Marker } from 'react-native-maps';
-import { supabase } from '../../lib/supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
+import { Alert, ScrollView, StyleSheet } from "react-native";
+import MapView, { Marker } from "react-native-maps";
+import { Card, Paragraph, Title } from "react-native-paper";
+import { supabase } from "../../lib/supabase";
 
 interface Stamp {
   id: number;
   user_id: string;
-  type: 'IN' | 'OUT';
+  type: "IN" | "OUT";
   latitude: number;
   longitude: number;
   address: string;
   city: string;
   created_at: string;
-  users?: { name: string };
+  users?: { name: string; personal_number: string };
 }
 
 export default function AdminScreen() {
   const [stamps, setStamps] = useState<Stamp[]>([]);
   const router = useRouter();
 
-  // Kontrollera admin-behörighet
+  // Check if user is admin
   useEffect(() => {
     const checkAdmin = async () => {
-      const role = await AsyncStorage.getItem('userRole');
-      if (role !== 'admin') {
-        Alert.alert('Otillåtet', 'Du har inte behörighet att se admin-sidan');
-        router.replace('/'); // skicka till index
+      const role = await AsyncStorage.getItem("userRole");
+      if (role !== "admin") {
+        Alert.alert("Otillåtet", "Du har inte behörighet att se admin-sidan");
+        router.replace("/"); // redirect to home
       }
     };
     checkAdmin();
   }, []);
 
-  // Hämta initiala stämplar och subscriba realtime
+  // Fetch stamps and subscribe to real-time updates
   useEffect(() => {
+    let isMounted = true; // to avoid state updates after unmount
+
     const fetchStamps = async () => {
       const { data, error } = await supabase
-        .from('stamps')
-        .select('*, users(name)')
-        .order('id', { ascending: false });
+        .from("stamps")
+        .select("*, users(name, personal_number)")
+        .order("id", { ascending: false });
 
-      if (error) {
-        console.error(error);
-      } else {
-        setStamps(data || []);
-      }
+      if (error) console.error(error);
+      else if (isMounted) setStamps(data || []);
     };
 
     fetchStamps();
 
-    // Realtime channel
     const channel = supabase
-      .channel('public:stamps')
+      .channel("public:stamps")
       .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'stamps' },
-        (payload: { new: Stamp }) => {
-          setStamps(prev => [payload.new, ...prev]);
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "stamps" },
+        async (payload: { new: Stamp }) => {
+          // Fetch the full record with user info
+          const { data: joined, error } = await supabase
+            .from("stamps")
+            .select("*, users(name, personal_number)")
+            .eq("id", payload.new.id)
+            .single();
+
+          if (joined && isMounted) {
+            setStamps((prev) => [joined, ...prev]);
+          }
         }
       )
       .subscribe();
 
     return () => {
+      isMounted = false;
       supabase.removeChannel(channel);
     };
   }, []);
 
   return (
     <ScrollView style={styles.container}>
-      {stamps.map(stamp => (
+      {stamps.map((stamp) => (
         <Card key={stamp.id} style={styles.card}>
           <Card.Content>
             <Title>
-              {stamp.users?.name || 'Okänt namn'} — {stamp.type}
+              {stamp.users?.name} ({stamp.users?.personal_number}) —{" "}
+              {stamp.type}
             </Title>
-            <Paragraph>Adress: {stamp.address}, {stamp.city}</Paragraph>
-            <Paragraph>Tid: {new Date(stamp.created_at).toLocaleTimeString()}</Paragraph>
-            <Paragraph>Datum: {new Date(stamp.created_at).toLocaleDateString()}</Paragraph>
+            <Paragraph>
+              Adress: {stamp.address}, {stamp.city}
+            </Paragraph>
+            <Paragraph>
+              Tid: {new Date(stamp.created_at).toLocaleTimeString()}
+            </Paragraph>
+            <Paragraph>
+              Datum: {new Date(stamp.created_at).toLocaleDateString()}
+            </Paragraph>
           </Card.Content>
           {stamp.latitude && stamp.longitude && (
             <MapView
@@ -92,7 +107,12 @@ export default function AdminScreen() {
               scrollEnabled={false}
               zoomEnabled={false}
             >
-              <Marker coordinate={{ latitude: stamp.latitude, longitude: stamp.longitude }} />
+              <Marker
+                coordinate={{
+                  latitude: stamp.latitude,
+                  longitude: stamp.longitude,
+                }}
+              />
             </MapView>
           )}
         </Card>
